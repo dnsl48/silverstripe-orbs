@@ -1,0 +1,118 @@
+version: 2.1
+
+description: Core modules CI build helpers
+
+executors:
+  mysql:
+    parameters:
+      php-version:
+        type: string
+        default: '71'
+      mysql-version:
+        type: string
+        default: '5.6'
+    docker:
+      - image: dnsl48/silverstripe-php<<parameters.php-version>>-cli:latest
+        user: root
+        environment:
+          SS_DATABASE_CLASS: MySQLDatabase
+          SS_DATABASE_NAME: the_database
+          SS_DATABASE_USERNAME: root
+          SS_DATABASE_PASSWORD: root
+          SS_DATABASE_SERVER: mysql
+          SS_DEFAULT_ADMIN_USERNAME: admin
+          SS_DEFAULT_ADMIN_PASSWORD: password
+      - image: circleci/mysql:<<parameters.mysql-version>>
+        name: mysql
+        environment:
+          MYSQL_USER: root
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: the_database
+          MYSQL_HOST: mysql
+
+commands:
+  install:
+    steps:
+      - checkout
+
+      - run:
+          name: configure php.ini
+          command: |
+            cat \<< EOF > /usr/local/etc/php/php.ini
+            memory_limit=2G
+            date.timezone=Pacific/Auckland
+            EOF
+
+      - restore_cache:
+          keys:
+            - composer-cache-{{ .Branch }}-{{ .Executor }}
+
+      - run: composer validate
+      - run: composer install --prefer-source --no-interaction --no-progress --no-suggest --optimize-autoloader --verbose --profile
+      # - run: composer update --prefer-source --no-interaction --no-progress --no-suggest --optimize-autoloader --verbose --profile
+
+      - save_cache:
+          key: composer-cache-{{ .Branch }}-{{ .Executor }}
+          paths:
+            - ~/.composer/cache
+            - vendor
+
+  phpunit-suite:
+    parameters:
+      suite:
+        type: string
+    steps:
+      - run: vendor/bin/phpunit --testsuite <<parameters.suite>> --exclude-group exclude-from-travis;
+
+  phpunit-all:
+    steps:
+      - run: vendor/bin/phpunit --exclude-group exclude-from-travis;
+
+jobs:
+  unit-tests-with-mysql:
+    parameters:
+      php:
+        type: string
+        default: '71'
+
+      mysql:
+        type: string
+        default: '5.6'
+
+    executor:
+      name: mysql
+      php-version: <<parameters.php>>
+      mysql-version: <<parameters.mysql>>
+
+    steps:
+      - install
+      - phpunit-all
+
+  unit-suite-with-mysql:
+    parameters:
+      suite:
+        type: string
+
+      php:
+        type: string
+        default: '71'
+
+      mysql:
+        type: string
+        default: '5.6'
+
+    executor:
+      name: mysql
+      php-version: <<parameters.php>>
+      mysql-version: <<parameters.mysql>>
+
+    steps:
+      - install
+      - phpunit-suite:
+          suite: <<parameters.suite>>
+
+workflows:
+  version: 2
+  build:
+    jobs:
+      - unit-tests-with-mysql
